@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![中文文档](https://img.shields.io/badge/Docs-中文-blue.svg)](README_ZH.md)
-[![HitCount](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https://github.com/AreChen/mlx_inference)](https://github.com/AreChen/mlx_inference)
+
 
 ### Project Introduction
 
