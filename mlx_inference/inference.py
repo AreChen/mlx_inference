@@ -3,7 +3,6 @@ from mlx_inference.postprocess import postprocess_output
 from fastapi.responses import StreamingResponse, JSONResponse
 import time
 import json
-import uuid
 import base64
 from io import BytesIO
 from PIL import Image

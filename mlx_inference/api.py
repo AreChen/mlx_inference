@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse, JSONResponse
 from .models import ChatCompletionRequest, ResponseRequest
 from .config import settings
 from .logger import logger
@@ -7,7 +6,6 @@ from .model_loader import loaded_text_models, loaded_vision_models
 # from .queue import ...  # 并发队列相关已移除，无需导入
 from .utils import get_session_id
 from .inference import infer_text_model, infer_vision_model
-import asyncio
 
 app = FastAPI()
 

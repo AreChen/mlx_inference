@@ -1,8 +1,6 @@
 from mlx_lm import load as load_text_model
 from mlx_vlm import load as vlm_load
 from mlx_vlm.utils import load_config
-import os
-
 from .config import settings
 from .logger import logger
 
