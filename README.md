@@ -1,3 +1,4 @@
+![MLX INFERENCE Logo](https://i.imgur.com/8vUhlVY.jpg)
 # MLX INFERENCE
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
