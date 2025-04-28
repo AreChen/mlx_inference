@@ -175,3 +175,4 @@ cython_debug/
 .TestCode/
 .TestImage/
 docs/
+.env
