@@ -89,10 +89,13 @@ def infer_text_model(model_name, body: ChatCompletionRequest, session_id: str):
     # 非流式响应
     if not body.stream:
         from mlx_lm import generate
+        import time
+        logger.info(f"[推理开始] session_id={session_id} time={time.time()}")
         output_text = generate(
             model, tokenizer, prompt,
             max_tokens=body.max_tokens if body.max_tokens > 0 else 64000
         )
+        logger.info(f"[推理结束] session_id={session_id} time={time.time()}")
         # 判断是否为 /v1/responses 端点调用，返回 output/output_text 结构
         if getattr(body, "from_responses", False):
             output_message = {
