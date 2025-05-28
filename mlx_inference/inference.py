@@ -4,6 +4,10 @@ from fastapi.responses import StreamingResponse, JSONResponse
 import time
 import json
 import base64
+import threading
+
+# 全局互斥锁，保护 Metal/MLX 资源串行访问
+global_infer_lock = threading.Lock()
 from io import BytesIO
 from PIL import Image
 import numpy as np
@@ -91,10 +95,12 @@ def infer_text_model(model_name, body: ChatCompletionRequest, session_id: str):
         from mlx_lm import generate
         import time
         logger.info(f"[推理开始] session_id={session_id} time={time.time()}")
-        output_text = generate(
-            model, tokenizer, prompt,
-            max_tokens=body.max_tokens if body.max_tokens > 0 else 64000
-        )
+        # Metal/MLX 资源串行访问保护
+        with global_infer_lock:
+            output_text = generate(
+                model, tokenizer, prompt,
+                max_tokens=body.max_tokens if body.max_tokens > 0 else 64000
+            )
         logger.info(f"[推理结束] session_id={session_id} time={time.time()}")
         # 判断是否为 /v1/responses 端点调用，返回 output/output_text 结构
         if getattr(body, "from_responses", False):
@@ -138,38 +144,46 @@ def infer_text_model(model_name, body: ChatCompletionRequest, session_id: str):
         return JSONResponse(content=response, media_type="application/json")
     # 流式响应
     def generation_generator():
+        import time
+        # print("[DEBUG] generation_generator 启动，time 已导入")
         from mlx_lm import stream_generate
         generator = stream_generate(
             model, tokenizer, prompt,
             max_tokens=body.max_tokens if body.max_tokens > 0 else 64000
         )
-        for response in generator:
-            if response.text:
-                for char in response.text:
-                    chunk_data = json.dumps({
-                        "id": f"chatcmpl-{session_id[:8]}",
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": model_name,
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"content": char}
-                        }]
-                    })
-                    yield f"data: {chunk_data}\r\n\r\n"
-        final_chunk_data = json.dumps({
-            "id": f"chatcmpl-{session_id[:8]}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": model_name,
-            "choices": [{
-                "index": 0,
-                "delta": {},
-                "finish_reason": "stop"
-            }]
-        })
-        yield f"data: {final_chunk_data}\r\n\r\n"
-        yield "data: [DONE]\r\n\r\n"
+        # print("[DEBUG] stream_generate 已启动")
+        try:
+            global_infer_lock.acquire()
+            for response in generator:
+                if response.text:
+                    for char in response.text:
+                        # print(f"[DEBUG] 生成字符: {char}")
+                        chunk_data = json.dumps({
+                            "id": f"chatcmpl-{session_id[:8]}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": model_name,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"content": char}
+                            }]
+                        })
+                        yield f"data: {chunk_data}\r\n\r\n"
+            final_chunk_data = json.dumps({
+                "id": f"chatcmpl-{session_id[:8]}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model_name,
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop"
+                }]
+            })
+            yield f"data: {final_chunk_data}\r\n\r\n"
+            yield "data: [DONE]\r\n\r\n"
+        finally:
+            global_infer_lock.release()
     return StreamingResponse(generation_generator(), media_type='text/event-stream')
 
 def infer_vision_model(model_name, body: ChatCompletionRequest, session_id: str):
@@ -180,6 +194,7 @@ def infer_vision_model(model_name, body: ChatCompletionRequest, session_id: str)
     # 解析 OpenAI 多模态 messages，提取图片和文本
     images = []
     prompt_messages = []
+    # vision模型同样需要全局锁保护
     for msg in body.messages:
         content = msg.get("content")
         # 新增：合并同一 user 消息下的 text 和 image_url，生成一条 user 消息，内容为 text + "\n<image>"
@@ -234,6 +249,14 @@ def infer_vision_model(model_name, body: ChatCompletionRequest, session_id: str)
     # 统计 formatted_prompt 里 image 占位符数量
     image_token_count = str(formatted_prompt).count('<image>')
     logger.info(f"[VLM DEBUG] formatted_prompt: {formatted_prompt}")
+
+    # Metal/MLX 资源串行访问保护
+    with global_infer_lock:
+        output_text = vlm_generate(
+            model, processor, config, formatted_prompt, images,
+            max_tokens=body.max_tokens if body.max_tokens > 0 else 64000
+        )
+    # ...（后续返回逻辑不变）
     logger.info(f"[VLM DEBUG] image_token_count: {image_token_count}, images_len: {len(images)}")
     if image_token_count != len(images):
         logger.warning(f"Image token count ({image_token_count}) does not match images list length ({len(images)}). Continuing with processing.")
