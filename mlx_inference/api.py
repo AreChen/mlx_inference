@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from .models import ChatCompletionRequest, ResponseRequest
 from .config import settings
@@ -48,10 +49,23 @@ async def worker_func(request, body, session_id, endpoint_func, endpoint_name, r
         logger.error(f"[队列] 处理 {endpoint_name} session_id={session_id} 异常: {e}")
         response_future.set_exception(e)
 
+# 全局推理队列和 worker
+inference_queue = asyncio.Queue()
+
 @app.on_event("startup")
 async def startup_event():
-    # 启动事件已触发（worker/队列机制已移除）
-    logger.info("应用启动完成，无全局推理队列。")
+    async def inference_worker():
+        while True:
+            req, body, session_id, fut = await inference_queue.get()
+            try:
+                result = await handle_chat_completions(req, body, session_id)
+                fut.set_result(result)
+            except Exception as e:
+                fut.set_exception(e)
+            finally:
+                inference_queue.task_done()
+    asyncio.create_task(inference_worker())
+    logger.info("应用启动完成，已启用全局推理队列串行化。")
 
 async def handle_chat_completions(request, body, session_id):
     model_name = getattr(body, "model", None)
@@ -99,8 +113,10 @@ async def chat_completions(request: Request, body: ChatCompletionRequest):
         for msg in body.messages:
             if isinstance(msg, dict) and "content" in msg:
                 msg["content"] = standardize_content(msg["content"])
-    # 直接异步调用推理，无需入队
-    result = await handle_chat_completions(request, body, session_id) # 直接传递 body
+    # 推理请求入队，串行化执行
+    fut = asyncio.get_event_loop().create_future()
+    await inference_queue.put((request, body, session_id, fut))
+    result = await fut
     return result
 
 @app.post("/v1/responses")
